@@ -157,6 +157,7 @@ def img_to_base64(img_array, size=(96, 96), title=""):
 
 # Initialize Dash App
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA])
+app.title = "PCam Analyzer"
 app.config.suppress_callback_exceptions = True  # Allow dynamic callback components
 
 # Default Dark Mode Styling
@@ -179,6 +180,8 @@ app.layout = html.Div(
 
         # Store the current index of the displayed image
         dcc.Store(id="current-index", data=0),
+        dcc.Store(id="visited-images", data=[]),
+        dcc.Store(id="flagged-samples", data=[]),
         dcc.Interval(id="startup-trigger", interval=1, max_intervals=1),
 
         # Image Display Area with Label
@@ -233,7 +236,7 @@ app.layout = html.Div(
                     style={"padding": "10px"},
                     children=[
                         dbc.Col(
-                            dbc.Button("Flag the image", color="danger", style={"width": "300px"}),
+                            dbc.Button("Flag the image", id="flag-btn", color="danger", style={"width": "300px"}),
                             className="mx-auto text-center",
                         )
                     ]
@@ -277,15 +280,21 @@ app.layout = html.Div(
      Output("image-label", "children"),
      Output("confidence-score", "children"),
      Output("thumbnail-gallery", "children"),
-     Output("current-index", "data")],
+     Output("current-index", "data"),
+     Output("flagged-samples", "data"),
+     Output("visited-images", "data")
+     ],
     [Input("startup-trigger", "n_intervals"),
      Input("prev-btn", "n_clicks"),
      Input("next-btn", "n_clicks"),
+     Input("flag-btn", "n_clicks"),
      Input({"type": "thumb", "index": ALL}, "n_clicks"),
      Input("opacity-slider", "value")],
-    [State("current-index", "data")]
+    [State("current-index", "data"),
+     State("flagged-samples", "data"),
+     State("visited-images", "data")]
 )
-def update_image(startup, prev_clicks, next_clicks, thumb_clicks, opacity, current_index):
+def update_image(startup, prev_clicks, next_clicks, flag_btn, thumb_clicks, opacity, current_index, flagged_samples, visited_images):
     ctx = dash.callback_context
 
     if not ctx.triggered:
@@ -299,6 +308,14 @@ def update_image(startup, prev_clicks, next_clicks, thumb_clicks, opacity, curre
         current_index = min(num_images - 1, current_index + 1)
     elif "thumb" in triggered_id:
         current_index = int(eval(triggered_id)["index"])
+    elif triggered_id == "flag-btn":
+        filename = image_list[current_index][1]  # Get current filename
+        if filename not in flagged_samples:
+            flagged_samples.append(filename)  # ✅ Save filename of flagged image
+
+    filename = image_list[current_index][1]
+    if filename not in visited_images:
+        visited_images.append(filename)  # ✅ Mark as visited
 
     img_array, filename = image_list[current_index]
     main_img_src = img_to_base64(img_array, size=(96, 96), title="Original")
@@ -334,7 +351,7 @@ def update_image(startup, prev_clicks, next_clicks, thumb_clicks, opacity, curre
             style={
                 "width": "64px",
                 "height": "64px",
-                "border": f"3px solid {'yellow' if i == current_index else 'green'}",
+                "border": f"3px solid {'red' if image_list[i][1] in flagged_samples else ('yellow' if i == current_index else ('green' if image_list[i][1] in visited_images else 'white'))}",
                 "cursor": "pointer",
                 "margin": "5px"
             },
@@ -345,7 +362,8 @@ def update_image(startup, prev_clicks, next_clicks, thumb_clicks, opacity, curre
 
     label = "Given label: No metastases"
     return (main_img_src, img_to_base64(gradcam_overlay, size=(96,96), title="GradCAM"),
-            img_to_base64(hircam_overlay, size=(96,96), title="HiResCAM"), label, confidence_text, thumbnails, current_index)
+            img_to_base64(hircam_overlay, size=(96,96), title="HiResCAM"), label, confidence_text, thumbnails,
+            current_index, flagged_samples, visited_images)
 
 if __name__ == "__main__":
     app.run_server(debug=True)
