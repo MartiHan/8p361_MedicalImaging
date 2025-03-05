@@ -92,6 +92,58 @@ def compute_grad_cam(model, image, layer_name=None):
     heatmap /= np.max(heatmap) if np.max(heatmap) != 0 else 1
     return heatmap
 
+
+def compute_hires_cam(model, image, class_index=0, layer_name=None):
+    """
+    Generates a HiResCAM heatmap for a given image.
+    - model: Trained CNN model.
+    - image: Input image (shape: (96, 96, 3)).
+    - class_index: Index of the predicted class (default: 0 for binary classification).
+    - layer_name: Name of the convolutional layer to visualize.
+
+    Returns:
+    - High-resolution CAM heatmap.
+    """
+    if layer_name is None:
+        # Automatically find the last Conv2D layer
+        for layer in reversed(model.layers):
+            if isinstance(layer, tf.keras.layers.Conv2D):
+                layer_name = layer.name
+                break
+
+    # Expand dimensions for model input
+    img_tensor = np.expand_dims(image, axis=0)
+
+    # Create model that outputs feature maps + predictions
+    grad_model = tf.keras.models.Model(
+        inputs=model.input,
+        outputs=[model.get_layer(layer_name).output, model.output]
+    )
+
+    # Compute gradients
+    with tf.GradientTape() as tape:
+        conv_output, predictions = grad_model(img_tensor)
+        class_output = predictions[:, class_index]
+
+    # Compute gradients of the class output w.r.t. conv layer
+    grads = tape.gradient(class_output, conv_output)
+
+    # Only keep **positive** gradients (HiResCAM technique)
+    positive_grads = tf.maximum(grads, 0)  # Removes negative contributions
+
+    # Compute importance weights
+    pooled_grads = tf.reduce_mean(positive_grads, axis=(0, 1, 2))
+
+    # Apply weights to feature maps
+    conv_output = conv_output[0]
+    hires_cam = np.mean(conv_output * pooled_grads, axis=-1)
+
+    # Normalize heatmap
+    hires_cam = np.maximum(hires_cam, 0)
+    hires_cam /= np.max(hires_cam)
+
+    return hires_cam
+
 # Function to Convert Image to Base64
 def img_to_base64(img_array, size=(96, 96), title=""):
     fig, ax = plt.subplots(figsize=(size[0] / 32, size[1] / 32))
@@ -160,6 +212,12 @@ app.layout = html.Div(
                                             ],
                                         width="auto",
                                         className="text-center"),
+                                        dbc.Col(
+                                            html.Img(id="hircam-image",
+                                                     style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
+                                            width="auto", className="text-center"
+                                        ),
+
                                     ],
                                     className="d-flex justify-content-center align-items-center"
                                 ),
@@ -215,6 +273,7 @@ app.layout = html.Div(
 @app.callback(
     [Output("output-image", "src"),
      Output("gradcam-image", "src"),
+     Output("hircam-image", "src"),
      Output("image-label", "children"),
      Output("confidence-score", "children"),
      Output("thumbnail-gallery", "children"),
@@ -247,6 +306,9 @@ def update_image(startup, prev_clicks, next_clicks, thumb_clicks, opacity, curre
     # Compute Grad-CAM Heatmap
     heatmap = compute_grad_cam(loaded_model, img_array)
     gradcam_overlay = overlay_heatmap(img_array, heatmap, opacity)
+
+    heatmap = compute_hires_cam(loaded_model, img_array)
+    hircam_overlay = overlay_heatmap(img_array, heatmap, opacity)
 
     # Extract Confidence Score from Filename
     confidence = 100 - int(filename.split("_")[0])  # Extract confidence
@@ -282,7 +344,8 @@ def update_image(startup, prev_clicks, next_clicks, thumb_clicks, opacity, curre
     ]
 
     label = "Given label: No metastases"
-    return main_img_src, img_to_base64(gradcam_overlay, size=(96,96), title="GradCAM"), label, confidence_text, thumbnails, current_index
+    return (main_img_src, img_to_base64(gradcam_overlay, size=(96,96), title="GradCAM"),
+            img_to_base64(hircam_overlay, size=(96,96), title="HiResCAM"), label, confidence_text, thumbnails, current_index)
 
 if __name__ == "__main__":
     app.run_server(debug=True)
