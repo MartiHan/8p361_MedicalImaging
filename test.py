@@ -9,6 +9,10 @@ from dash.dependencies import Input, Output, State, ALL
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
+import cv2
+import tensorflow as tf
+from tensorflow.keras.models import model_from_json
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 # Set TensorFlow log level
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -17,6 +21,57 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 IMAGE_SIZE = 96
 CATEGORY_SIZE = 10  # Number of images to load per class
 DATASET_PATH = '/home/martina/Documents/University/Year 2/Q3/8P361 AI Project for Medical Imaging/Datasets/'  # Update this path
+
+# Load Model Architecture and Weights
+with open("my_first_cnn_model.json", "r") as json_file:
+    loaded_model_json = json_file.read()
+
+loaded_model = model_from_json(loaded_model_json)
+loaded_model.load_weights("my_first_cnn_model_weights.hdf5")
+
+# Function to Get the Last Conv Layer
+def get_last_conv_layer(model):
+    """Finds the last convolutional layer in the CNN."""
+    for layer in reversed(model.layers):
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            return layer.name
+    raise ValueError("No convolutional layer found in the model.")
+
+# Function to Compute Grad-CAM Heatmap (Fixed)
+def compute_grad_cam(model, image, layer_name=None):
+    """Generates a Grad-CAM heatmap for the given image."""
+    if layer_name is None:
+        layer_name = get_last_conv_layer(model)
+
+    img_tensor = np.expand_dims(image, axis=0)
+
+    grad_model = tf.keras.models.Model(
+        inputs=model.inputs[0],
+        outputs=[model.get_layer(layer_name).output, model.outputs[0]]
+    )
+
+    with tf.GradientTape() as tape:
+        conv_output, predictions = grad_model(img_tensor)
+        class_index = int(np.argmax(predictions))  # ✅ FIXED Invalid Index Error
+        class_output = predictions[:, class_index]
+
+    grads = tape.gradient(class_output, conv_output)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+    conv_output = conv_output[0]
+    heatmap = np.mean(conv_output * pooled_grads, axis=-1)
+    heatmap = np.maximum(heatmap, 0)
+    heatmap /= np.max(heatmap) if np.max(heatmap) != 0 else 1
+    return heatmap
+
+def overlay_heatmap(image, heatmap, alpha=0.5):
+    """Overlays the Grad-CAM heatmap on the original image with adjustable opacity (alpha)."""
+    heatmap = cv2.resize(heatmap, (image.shape[1], image.shape[0]))
+    heatmap = np.uint8(255 * heatmap)
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    img = np.uint8(255 * image)  # Convert original image to uint8
+    superimposed_img = cv2.addWeighted(img, 1 - alpha, heatmap, alpha, 0)  # ✅ Dynamic Alpha
+    return superimposed_img
+
 
 # Function to Load Images
 def get_pcam_generators(base_dir, batch_size=32):
@@ -39,6 +94,16 @@ train_gen = get_pcam_generators(DATASET_PATH)
 # Load and Preprocess Images
 class_names = ['Benign', 'Malignant']
 selected_images = {0: [], 1: []}
+while len(selected_images[0]) < CATEGORY_SIZE or len(selected_images[1]) < CATEGORY_SIZE:
+    images, labels = next(train_gen)
+    for img, label in zip(images, labels):
+        label_int = int(label)
+        if len(selected_images[label_int]) < CATEGORY_SIZE:
+            selected_images[label_int].append((img, label_int))
+    if len(selected_images[0]) >= CATEGORY_SIZE and len(selected_images[1]) >= CATEGORY_SIZE:
+        break
+
+image_list = selected_images[0] + selected_images[1]
 
 while len(selected_images[0]) < CATEGORY_SIZE or len(selected_images[1]) < CATEGORY_SIZE:
     images, labels = next(train_gen)
@@ -85,10 +150,32 @@ app.layout = html.Div(
                         html.Div(
                             [
                                 html.H5(id="image-label", className="text-center mt-2"),
-                                html.Img(
-                                    id="output-image",
-                                    style={"maxWidth": "300px", "borderRadius": "10px", "display": "block", "margin": "auto"},
+                                dbc.Row(
+                                    [
+                                        dbc.Col(
+                                            html.Img(id="output-image",
+                                                     style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
+                                            width="auto", className="text-center"
+                                        ),
+                                        dbc.Col(
+                                            children=[
+                                                html.Img(id="gradcam-image",
+                                                         style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "35px"}),
+
+                                                dcc.Slider(
+                                                    id="opacity-slider",
+                                                    min=0, max=1, step=0.05,
+                                                    value=0.5,  # Default opacity
+                                                    marks={0: "0", 0.5: "0.5", 1: "1"},
+                                                    tooltip={"placement": "bottom"},
+                                                ),
+                                            ],
+                                        width="auto",
+                                        className="text-center"),
+                                    ],
+                                    className="d-flex justify-content-center align-items-center"
                                 ),
+
                             ],
                             className="text-center",
                         ),
@@ -137,11 +224,12 @@ app.layout = html.Div(
 )
 
 # Function to Convert Image to Base64
-def img_to_base64(img_array, size=(96, 96)):
+def img_to_base64(img_array, size=(96, 96), title=""):
     fig, ax = plt.subplots(figsize=(size[0] / 32, size[1] / 32))
     ax.imshow(img_array)
     ax.axis("off")
     buf = io.BytesIO()
+    plt.title(title, color="white")
     plt.savefig(buf, format="png", bbox_inches="tight", facecolor="#343a40")
     buf.seek(0)
     return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
@@ -149,15 +237,17 @@ def img_to_base64(img_array, size=(96, 96)):
 # Callback to Handle Navigation & Thumbnail Clicks
 @app.callback(
     [Output("output-image", "src"),
+     Output("gradcam-image", "src"),
      Output("image-label", "children"),
      Output("thumbnail-gallery", "children"),
      Output("current-index", "data")],
     [Input("prev-btn", "n_clicks"),
      Input("next-btn", "n_clicks"),
-     Input({"type": "thumb", "index": ALL}, "n_clicks")],
+     Input({"type": "thumb", "index": ALL}, "n_clicks"),
+     Input("opacity-slider", "value")],
     [State("current-index", "data")]
 )
-def update_image(prev_clicks, next_clicks, thumb_clicks, current_index):
+def update_image(prev_clicks, next_clicks, thumb_clicks, opacity, current_index):
     ctx = dash.callback_context
 
     if not ctx.triggered:
@@ -175,7 +265,7 @@ def update_image(prev_clicks, next_clicks, thumb_clicks, current_index):
 
     # Get the current main image and label
     img_array, img_label = image_list[current_index]
-    main_img_src = img_to_base64(img_array, size=(96, 96))
+    main_img_src = img_to_base64(img_array, size=(96, 96), title="Original")
     label_text = "Benign" if img_label == 0 else "Malignant"
 
     # Get 5 previous and 5 next thumbnails
@@ -199,9 +289,11 @@ def update_image(prev_clicks, next_clicks, thumb_clicks, current_index):
         for i in thumb_indexes
     ]
 
-    return main_img_src, label_text, thumbnails, current_index
+    img_array, img_label = image_list[current_index]
+    heatmap = compute_grad_cam(loaded_model, img_array)
+    gradcam_overlay = overlay_heatmap(img_array, heatmap, opacity)
 
-
+    return main_img_src, img_to_base64(gradcam_overlay, size=(96,96), title="GradCAM"), label_text, thumbnails, current_index
 # Run the app
 if __name__ == "__main__":
     app.run_server(debug=True)
