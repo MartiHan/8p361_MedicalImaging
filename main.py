@@ -12,6 +12,10 @@ import tensorflow as tf
 import cv2
 from tensorflow.keras.models import model_from_json
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
+import visualkeras
+from PIL import ImageFont
+from PIL import Image
+from keras.utils import plot_model
 
 # Set dataset directory
 FALSE_POSITIVES_PATH = "false_positives/"
@@ -22,6 +26,20 @@ with open("my_first_cnn_model.json", "r") as json_file:
 
 loaded_model = model_from_json(loaded_model_json)
 loaded_model.load_weights("my_first_cnn_model_weights.hdf5")
+print(loaded_model.summary())
+
+
+
+def generate_model_visualization(model):
+    """Generates a visual representation of the CNN model and saves it."""
+    # font = ImageFont.truetype("arial.ttf", 12)  # Set font
+    visualkeras.layered_view(model, legend=True, to_file="assets/model_architecture.png")  # Save image
+
+    plot_model(model, to_file='assets/model_plot.png', show_shapes=True, show_layer_names=True)
+
+    return "model_architecture.png"
+
+generate_model_visualization(loaded_model)
 
 # Function to Get the Last Conv Layer
 def get_last_conv_layer(model):
@@ -188,83 +206,146 @@ app.layout = html.Div(
         dbc.Container(
             [
                 dbc.Row(
-                    dbc.Col(
-                        html.Div(
+                    [
+                        dbc.Col(
                             [
-                                html.H5(id="image-label", className="text-center mt-2"),
-                                html.H6(id="confidence-score", className="text-center mt-2"),
-                                dbc.Row(
-                                    [
-                                        dbc.Col(
-                                            html.Img(id="output-image",
-                                                     style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
-                                            width="auto", className="text-center"
-                                        ),
-                                        dbc.Col(
-                                            children=[
-                                                html.Img(id="gradcam-image",
-                                                         style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "35px"}),
-
-                                                dcc.Slider(
-                                                    id="opacity-slider",
-                                                    min=0, max=1, step=0.05,
-                                                    value=0.5,  # Default opacity
-                                                    marks={0: "0", 0.5: "0.5", 1: "1"},
-                                                    tooltip={"placement": "bottom"},
+                                        html.H2("Model Architecture", className="text-center mt-2"),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col([
+                                                    html.Img(id="model-visual", src="assets/model_architecture.png",
+                                                             style={"maxWidth": "375px"}),
+                                                    html.Img(id="model-visual3", src="assets/confusion_matrix.png",
+                                                             style={"maxHeight": "322px", "paddingTop": "10px"}),
+                                                ],
+                                                    style={"padding:": "15px"},
+                                                    className="p-0 m-0",
+                                                    width=5,
                                                 ),
-                                            ],
-                                        width="auto",
-                                        className="text-center"),
-                                        dbc.Col(
-                                            html.Img(id="hircam-image",
-                                                     style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
-                                            width="auto", className="text-center"
-                                        ),
+                                                html.Div(style={"width": "10px"}),
+                                                dbc.Col([
+                                                    html.Img(id="model-visual2", src="assets/model_plot.png", style={"maxHeight": "414px"}),
+                                                    html.Img(id="model-visual4", src="assets/histogram.png",
+                                                             style={"maxHeight": "322px", "paddingTop": "10px"}),
+                                                ],
+                                                    className="p-0 m-0",
+                                                    width=5,
+                                                )
+                                                #html.Div(style={"width": "10px"}),
 
-                                    ],
-                                    className="d-flex justify-content-center align-items-center"
-                                ),
+                                            ],
+                                                className="g-0"
+                                        ),
+                                        #html.Div(style={"width": "10px"}),
 
                             ],
-                            className="text-center",
+                            #width=4,  # Set column width
                         ),
-                        width=12,
-                    )
-                ),
-
-                dbc.Row(
-                    style={"padding": "10px"},
-                    children=[
                         dbc.Col(
-                            dbc.Button("Flag the image", id="flag-btn", color="danger", style={"width": "300px"}),
-                            className="mx-auto text-center",
+                            [
+                            html.H2("False Positive Samples Preview", className="text-center mt-2"),
+                            dbc.Row(
+                                dbc.Col(
+                                    html.Div(
+                                        [
+                                            html.H5(id="image-label", className="text-center mt-2"),
+                                            html.H6(id="confidence-score", className="text-center mt-2"),
+                                            dbc.Select(
+                                                id="gradcam-layer-dropdown",
+                                                options=[
+                                                    {"label": layer.name, "value": layer.name} for layer in loaded_model.layers if "conv" in layer.name
+                                                ],
+                                                value=get_last_conv_layer(loaded_model),  # Default: Last Conv Layer
+                                                #clearable=False,
+                                                style={"width": "20%", "margin-bottom": "10px"},
+                                                className="mx-auto text-center",
+                                            ),
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        html.Img(id="output-image",
+                                                                 style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
+                                                        width="auto", className="text-center"
+                                                    ),
+                                                    dbc.Col(
+                                                        children=[
+                                                            html.Img(id="gradcam-image",
+                                                                     style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "35px"}),
+
+                                                            dcc.Slider(
+                                                                id="opacity-slider",
+                                                                min=0, max=1, step=0.05,
+                                                                value=0.5,  # Default opacity
+                                                                marks={0: "0", 0.5: "0.5", 1: "1"},
+                                                                tooltip={"placement": "bottom"},
+                                                            ),
+                                                        ],
+                                                    width="auto",
+                                                    className="text-center"),
+                                                    dbc.Col(
+                                                        html.Img(id="hircam-image",
+                                                                 style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
+                                                        width="auto", className="text-center"
+                                                    ),
+
+                                                ],
+                                                className="d-flex justify-content-center align-items-center"
+                                            ),
+
+                                        ],
+                                        className="text-center",
+                                    ),
+                                    width=12,
+                                )
+                            ),
+
+                            dbc.Row(
+                                style={"padding": "10px"},
+                                children=[
+                                    dbc.Col(
+                                        dbc.Button("Flag the image", id="flag-btn", color="danger", style={"width": "300px"}),
+                                        className="mx-auto text-center",
+                                    )
+                                ]
+                            ),
+
+                            # Thumbnail Preview Row
+                            dbc.Row(
+                                dbc.Col(
+                                    html.Div(id="thumbnail-gallery", className="d-flex justify-content-center mt-3"),
+                                    width=12,
+                                )
+                            ),
+
+                            # Navigation Buttons (Below the Image)
+                            dbc.Row(
+                                dbc.Col(
+                                    dbc.ButtonGroup(
+                                        [
+                                            dbc.Button("Previous", id="prev-btn", n_clicks=0, type="button", color="primary", className="me-1",
+                                                       style={"width": "100px"}),
+                                            dbc.Button("Next", id="next-btn", n_clicks=0, color="primary", className="me-1", style={"width": "100px"}),
+                                        ],
+                                        className="mt-3 d-flex justify-content-center",
+                                    ),
+                                    width=4,  # Reduce width to make buttons smaller and centered
+                                    className="mx-auto text-center",
+                                )
+                            ),
+
+                                dbc.Row(
+                                    style={"paddingTop": "30px"},
+                                    children=[
+                                        dbc.Col(
+                                            dbc.Button("Export 0 Flagged Images", id="export-btn", color="warning", style={"width": "500px"}),
+                                            className="mx-auto text-center",
+                                        )
+                                    ]
+                                ),
+                            ]
                         )
                     ]
-                ),
-
-                # Thumbnail Preview Row
-                dbc.Row(
-                    dbc.Col(
-                        html.Div(id="thumbnail-gallery", className="d-flex justify-content-center mt-3"),
-                        width=12,
-                    )
-                ),
-
-                # Navigation Buttons (Below the Image)
-                dbc.Row(
-                    dbc.Col(
-                        dbc.ButtonGroup(
-                            [
-                                dbc.Button("Previous", id="prev-btn", n_clicks=0, type="button", color="primary", className="me-1",
-                                           style={"width": "100px"}),
-                                dbc.Button("Next", id="next-btn", n_clicks=0, color="primary", className="me-1", style={"width": "100px"}),
-                            ],
-                            className="mt-3 d-flex justify-content-center",
-                        ),
-                        width=4,  # Reduce width to make buttons smaller and centered
-                        className="mx-auto text-center",
-                    )
-                ),
+                )
             ],
             fluid=True,
         ),
@@ -282,19 +363,21 @@ app.layout = html.Div(
      Output("thumbnail-gallery", "children"),
      Output("current-index", "data"),
      Output("flagged-samples", "data"),
-     Output("visited-images", "data")
+     Output("visited-images", "data"),
+     Output("export-btn", "children"),
      ],
     [Input("startup-trigger", "n_intervals"),
      Input("prev-btn", "n_clicks"),
      Input("next-btn", "n_clicks"),
      Input("flag-btn", "n_clicks"),
      Input({"type": "thumb", "index": ALL}, "n_clicks"),
-     Input("opacity-slider", "value")],
+     Input("opacity-slider", "value"),
+     Input("gradcam-layer-dropdown", "value")],
     [State("current-index", "data"),
      State("flagged-samples", "data"),
      State("visited-images", "data")]
 )
-def update_image(startup, prev_clicks, next_clicks, flag_btn, thumb_clicks, opacity, current_index, flagged_samples, visited_images):
+def update_image(startup, prev_clicks, next_clicks, flag_btn, thumb_clicks, opacity, selected_layer, current_index, flagged_samples, visited_images):
     ctx = dash.callback_context
 
     if not ctx.triggered:
@@ -321,10 +404,10 @@ def update_image(startup, prev_clicks, next_clicks, flag_btn, thumb_clicks, opac
     main_img_src = img_to_base64(img_array, size=(96, 96), title="Original")
 
     # Compute Grad-CAM Heatmap
-    heatmap = compute_grad_cam(loaded_model, img_array)
+    heatmap = compute_grad_cam(loaded_model, img_array, layer_name=selected_layer)
     gradcam_overlay = overlay_heatmap(img_array, heatmap, opacity)
 
-    heatmap = compute_hires_cam(loaded_model, img_array)
+    heatmap = compute_hires_cam(loaded_model, img_array, layer_name=selected_layer)
     hircam_overlay = overlay_heatmap(img_array, heatmap, opacity)
 
     # Extract Confidence Score from Filename
@@ -360,10 +443,11 @@ def update_image(startup, prev_clicks, next_clicks, flag_btn, thumb_clicks, opac
         for i in thumb_indexes
     ]
 
+    flagged_count = len(flagged_samples)
     label = "Given label: No metastases"
     return (main_img_src, img_to_base64(gradcam_overlay, size=(96,96), title="GradCAM"),
             img_to_base64(hircam_overlay, size=(96,96), title="HiResCAM"), label, confidence_text, thumbnails,
-            current_index, flagged_samples, visited_images)
+            current_index, flagged_samples, visited_images, f"Export {flagged_count} Flagged Images")
 
 if __name__ == "__main__":
     app.run_server(debug=True)
