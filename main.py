@@ -10,22 +10,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 import cv2
-from tensorflow.keras.models import model_from_json
+from tensorflow.keras.models import model_from_json, Model
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import visualkeras
 from PIL import ImageFont
 from PIL import Image
 from keras.utils import plot_model
 
+
 # Set dataset directory
-FALSE_POSITIVES_PATH = "false_positives/"
+FALSE_POSITIVES_PATH = "marek_gpu/true_positives"
+
+DEFAULT_DATASET="basic_cnn_model.json"
+DEFAULT_WEIGHT="basic_model_weights.hdf5"
 
 # Load Model Architecture and Weights
-with open("my_first_cnn_model.json", "r") as json_file:
+with open(DEFAULT_DATASET, "r") as json_file:
     loaded_model_json = json_file.read()
 
 loaded_model = model_from_json(loaded_model_json)
-loaded_model.load_weights("my_first_cnn_model_weights.hdf5")
+loaded_model.load_weights(DEFAULT_WEIGHT)
 print(loaded_model.summary())
 
 
@@ -214,9 +218,9 @@ app.layout = html.Div(
                                             [
                                                 dbc.Col([
                                                     html.Img(id="model-visual", src="assets/model_architecture.png",
-                                                             style={"maxWidth": "375px"}),
+                                                             style={"maxWidth": "370px"}),
                                                     html.Img(id="model-visual3", src="assets/confusion_matrix.png",
-                                                             style={"maxHeight": "322px", "paddingTop": "10px"}),
+                                                             style={"maxHeight": "322px", "paddingTop": "15px"}),
                                                 ],
                                                     style={"padding:": "15px"},
                                                     className="p-0 m-0",
@@ -224,12 +228,78 @@ app.layout = html.Div(
                                                 ),
                                                 html.Div(style={"width": "10px"}),
                                                 dbc.Col([
-                                                    html.Img(id="model-visual2", src="assets/model_plot.png", style={"maxHeight": "414px"}),
+                                                    dbc.Row([
+                                                        dbc.Col(
+                                                            html.Img(id="model-visual2", src="assets/model_plot.png", style={"maxHeight": "410px"}),
+                                                            className="p-0 m-0",
+                                                        ),
+                                                        html.Div(style={"width": "10px"}),
+                                                        dbc.Col(
+                                                            [
+                                                            html.H6("Loaded model: "),
+                                                            html.Label(f"{DEFAULT_DATASET}"),
+                                                            dcc.Upload(
+                                                                id="upload-image",
+                                                                children=html.Div(
+                                                                    ["Replace the Model"]
+                                                                ),
+                                                                style={
+                                                                    "width": "100%",
+                                                                    "height": "100px",
+                                                                    "lineHeight": "100px",
+                                                                    "borderWidth": "2px",
+                                                                    "borderStyle": "dashed",
+                                                                    "borderRadius": "10px",
+                                                                    "textAlign": "center",
+                                                                    "margin": "10px",
+                                                                },
+                                                                multiple=False,
+                                                            ),
+                                                            html.Div(style={"paddingTop": "10px"}),
+                                                            html.H6("Loaded weights: "),
+                                                            html.Label(f"{DEFAULT_WEIGHT}"),
+
+                                                            dcc.Upload(
+                                                                id="upload-weight",
+                                                                children=html.Div(
+                                                                    ["Replace the Weights"]
+                                                                ),
+                                                                style={
+                                                                    "width": "100%",
+                                                                    "height": "100px",
+                                                                    "lineHeight": "100px",
+                                                                    "borderWidth": "2px",
+                                                                    "borderStyle": "dashed",
+                                                                    "borderRadius": "10px",
+                                                                    "textAlign": "center",
+                                                                    "margin": "10px",
+                                                                },
+                                                                multiple=False,
+                                                            ),
+                                                            dbc.Row(
+                                                                style={"paddingLeft": "7px"},
+                                                                children=[
+                                                                    dbc.Col(
+                                                                        dbc.Button("Regenerate the Classifier",
+                                                                                   color="primary",
+                                                                                   style={"width": "200px"}),
+                                                                        #className="mx-auto text-center",
+                                                                        width=2,
+                                                                    )
+                                                                ]
+                                                            ),
+
+                                                            ],
+                                                            className="p-0 m-0",
+                                                        ),
+                                                        ],
+                                                            className="g-0",
+                                                    ),
                                                     html.Img(id="model-visual4", src="assets/histogram.png",
-                                                             style={"maxHeight": "322px", "paddingTop": "10px"}),
+                                                                 style={"maxWidth": "490px", "paddingTop": "15px"}),
                                                 ],
                                                     className="p-0 m-0",
-                                                    width=5,
+                                                    width=6,
                                                 )
                                                 #html.Div(style={"width": "10px"}),
 
