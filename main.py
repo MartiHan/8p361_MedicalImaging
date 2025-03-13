@@ -19,7 +19,7 @@ from keras.utils import plot_model
 
 
 # Set dataset directory
-FALSE_POSITIVES_PATH = "marek_gpu/true_positives"
+FALSE_POSITIVES_PATH = "marek_gpu/false_positives"
 
 DEFAULT_DATASET="basic_cnn_model.json"
 DEFAULT_WEIGHT="basic_model_weights.hdf5"
@@ -34,6 +34,208 @@ print(loaded_model.summary())
 
 
 
+import saliency.core as saliency
+
+import numpy as np
+import saliency.core as saliency
+import tensorflow as tf
+
+import numpy as np
+import saliency.core as saliency
+import tensorflow as tf
+
+import numpy as np
+import saliency.core as saliency
+import tensorflow as tf
+import io
+import base64
+import matplotlib.pyplot as plt
+from PIL import Image
+
+def compute_score_cam(model, image, class_idx=0, last_conv_layer_name="conv2d", num_samples=32):
+    """
+    Computes Score-CAM heatmap (gradient-free explainability).
+
+    - `model`: Trained CNN model.
+    - `image`: Input image in shape (96, 96, 3).
+    - `class_idx`: Target class index for visualization.
+    - `last_conv_layer_name`: Name of the last convolutional layer.
+    - `num_samples`: Number of feature map perturbations.
+
+    Returns:
+    - Score-CAM heatmap (96, 96).
+    """
+
+    # ✅ Ensure correct input shape
+    if image.shape != (96,96,3):
+        raise ValueError(f"Input image must be (96,96,3), got {image.shape}")
+
+    # ✅ Expand dimensions for batch processing
+    image_batch = np.expand_dims(image, axis=0).astype(np.float32)
+
+    # ✅ Extract last convolutional layer output
+    last_conv_layer = model.get_layer(last_conv_layer_name).output
+
+    # ✅ Create new model mapping input → feature maps
+    score_model = tf.keras.Model(inputs=model.input, outputs=last_conv_layer)
+
+    # ✅ Compute feature maps
+    feature_maps = score_model(image_batch)[0]  # Remove batch dimension
+
+    # ✅ Convert feature maps to NumPy array
+    feature_maps = feature_maps.numpy()  # ✅ Convert from Tensor to NumPy
+
+    # ✅ Generate perturbed inputs using feature maps
+    perturbed_images = []
+    for i in range(feature_maps.shape[-1]):
+        mask = feature_maps[..., i]  # Extract feature map
+        mask = cv2.resize(mask, (96, 96))  # ✅ Ensure `mask` is a NumPy array
+        mask = np.expand_dims(mask, axis=-1)  # Expand dims to (96,96,1)
+        masked_image = image * mask  # Apply mask
+        perturbed_images.append(masked_image)
+
+    perturbed_images = np.array(perturbed_images)  # Shape: (num_features, 96, 96, 3)
+
+    # ✅ Get model scores for perturbed images
+    scores = model.predict(perturbed_images, verbose=0)[:, class_idx]  # Get scores for target class
+
+    # ✅ Compute weighted sum of feature maps using scores
+    score_cam_heatmap = np.sum(feature_maps * scores.reshape(1, 1, -1), axis=-1)
+
+
+    # ✅ Normalize heatmap to [0,1]
+    score_cam_heatmap = np.maximum(score_cam_heatmap, 0)
+    score_cam_heatmap /= np.max(score_cam_heatmap) if np.max(score_cam_heatmap) != 0 else 1
+
+    # ✅ Resize heatmap to match original image
+    heatmap = cv2.resize(score_cam_heatmap, (96, 96))
+
+    return heatmap
+
+def create_blurred_baseline(image):
+    """
+    Creates a blurred baseline to match the input image dimensions.
+    Uses Gaussian blur to maintain natural baseline comparisons.
+
+    - `image`: Input image in shape (96, 96, 3) or higher.
+
+    Returns:
+    - Blurred baseline with shape (1, 96, 96, 3).
+    """
+
+    # ✅ Apply Gaussian Blur with a Larger Kernel
+    blurred = cv2.GaussianBlur(image, (25, 25), 0)  # **Larger blur for better baseline**
+    blurred_baseline = np.expand_dims(blurred, axis=0).astype(np.float32)  # Ensure shape (1,96,96,3)
+
+    return blurred_baseline
+
+
+def compute_cam(model, image, class_idx=0, last_conv_layer_name="conv2d"):
+    """
+    Computes Class Activation Mapping (CAM) heatmap.
+
+    - `model`: Trained CNN model.
+    - `image`: Input image in shape (96, 96, 3).
+    - `class_idx`: Target class index for visualization.
+    - `last_conv_layer_name`: Name of the last convolutional layer.
+
+    Returns:
+    - CAM heatmap (96, 96).
+    """
+
+    # ✅ Ensure correct input shape
+    if image.shape != (96, 96, 3):
+        raise ValueError(f"Input image must be (96,96,3), got {image.shape}")
+
+    # ✅ Expand dimensions to match model input format
+    image_batch = np.expand_dims(image, axis=0).astype(np.float32)
+
+    # ✅ Get last convolutional layer and the output layer
+    last_conv_layer = model.get_layer(last_conv_layer_name).output
+    output_layer = model.output
+
+    # ✅ Create model that maps input image → feature maps & predictions
+    cam_model = tf.keras.Model(inputs=model.input, outputs=[last_conv_layer, output_layer])
+
+    # ✅ Compute feature maps & predictions
+    feature_maps, predictions = cam_model(image_batch)
+    feature_maps = feature_maps[0]  # Remove batch dimension
+
+    # ✅ Get the weights from the last fully connected layer
+    class_weights = model.layers[-1].weights[0]  # Shape: (num_features, num_classes)
+
+    # ✅ Extract the weights for the target class
+    class_weights = class_weights[:, class_idx]  # Shape: (num_features,)
+
+    # ✅ Compute CAM by weighted sum of feature maps
+    cam = np.dot(feature_maps, class_weights)  # Shape: (H, W)
+
+    # ✅ Normalize CAM to [0,1]
+    cam = np.maximum(cam, 0)  # Remove negative values
+    cam /= np.max(cam) if np.max(cam) != 0 else 1  # Normalize
+
+    # ✅ Resize CAM to match original image size
+    cam = cv2.resize(cam, (96, 96))
+
+    return cam  # ✅ Returns heatmap
+
+def compute_xrai_heatmap(model, image, class_idx=0):
+    """
+    Generates an ultra-fine XRAI heatmap with detailed segmentation.
+
+    - Uses **higher resolution** input.
+    - Applies **Gaussian-blurred baseline** instead of zeros.
+    - Enables **high-density superpixels**.
+
+    Returns:
+    - Fine-grained XRAI heatmap (NumPy array).
+    """
+
+    # ✅ Resize Image to Capture More Details
+    #image_resized = cv2.resize(image, (224, 224))  # High resolution for finer segmentation
+
+    # ✅ Create Smart Baseline (Gaussian Blur)
+    baseline = create_blurred_baseline(image)
+
+    # ✅ Expand image dimensions to batch format
+    image_batch = np.expand_dims(image, axis=0).astype(np.float32)
+
+    # ✅ Define model wrapper for saliency
+    def call_model(images, call_model_args=None, expected_keys=None):
+        images = tf.convert_to_tensor(images, dtype=tf.float32)
+        with tf.GradientTape() as tape:
+            tape.watch(images)  # **Ensure per-pixel gradient computation**
+            predictions = model(images)
+            class_output = predictions[:, class_idx]
+        gradients = tape.gradient(class_output, images)
+        return {saliency.base.INPUT_OUTPUT_GRADIENTS: gradients.numpy()}
+
+    # ✅ Initialize XRAI with More Superpixels
+    xrai = saliency.XRAI()
+
+    # ✅ Apply XRAI with Fine Superpixels
+    heatmap = xrai.GetMask(
+        image_batch[0],
+        call_model,
+        baselines=baseline,
+        batch_size=2000,  # **More superpixels for better granularity**
+    )
+
+    # ✅ Normalize Heatmap to Range [0,1]
+    heatmap = np.clip(heatmap, 0, 1).astype(np.float32)
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    ax.imshow(heatmap, cmap='jet', alpha=0.6)
+    ax.axis("off")
+
+    # ✅ Save image to a BytesIO buffer
+    buf = io.BytesIO()
+    plt.savefig("xtest.png", format="png", bbox_inches="tight", pad_inches=0)
+    buf.seek(0)
+
+    return heatmap  # **Now captures ultra-fine details**
+
+
 def generate_model_visualization(model):
     """Generates a visual representation of the CNN model and saves it."""
     # font = ImageFont.truetype("arial.ttf", 12)  # Set font
@@ -42,6 +244,59 @@ def generate_model_visualization(model):
     plot_model(model, to_file='assets/model_plot.png', show_shapes=True, show_layer_names=True)
 
     return "model_architecture.png"
+
+def compute_xgrad_cam(model, image, class_idx=0, last_conv_layer_name="conv2d"):
+    """
+    Computes xGrad-CAM heatmap (an improved Grad-CAM with second-order gradients).
+
+    - `model`: Trained CNN model.
+    - `image`: Input image in shape (96, 96, 3).
+    - `class_idx`: Target class index for visualization.
+    - `last_conv_layer_name`: Name of the last convolutional layer.
+
+    Returns:
+    - xGrad-CAM heatmap (96, 96).
+    """
+
+    # ✅ Ensure correct input shape
+    if image.shape != (96,96,3):
+        raise ValueError(f"Input image must be (96,96,3), got {image.shape}")
+
+    # ✅ Expand dimensions for batch processing
+    image_batch = np.expand_dims(image, axis=0).astype(np.float32)
+
+    # ✅ Extract last convolutional layer and model output
+    last_conv_layer = model.get_layer(last_conv_layer_name).output
+    output_layer = model.output
+
+    # ✅ Create new model mapping input → feature maps + prediction
+    xgrad_model = tf.keras.Model(inputs=model.input, outputs=[last_conv_layer, output_layer])
+
+    # ✅ Compute gradients using GradientTape
+    with tf.GradientTape() as tape:
+        conv_output, predictions = xgrad_model(image_batch)
+        class_output = predictions[:, class_idx]  # Extract class prediction
+
+    # ✅ Compute **first-order gradients** (Regular Grad-CAM)
+    grads = tape.gradient(class_output, conv_output)
+
+    # ✅ Compute **second-order gradients** (New in xGrad-CAM)
+    with tf.GradientTape() as tape2:
+        tape2.watch(conv_output)
+        second_order_output = tf.reduce_sum(conv_output * grads, axis=(1, 2))  # Aggregate gradients
+    second_grads = tape2.gradient(second_order_output, conv_output)
+
+    # ✅ Compute xGrad-CAM activation map
+    weighted_features = np.sum(second_grads[0] * conv_output[0], axis=-1)
+
+    # ✅ Normalize the heatmap
+    weighted_features = np.maximum(weighted_features, 0)  # ReLU to remove negatives
+    weighted_features /= np.max(weighted_features) if np.max(weighted_features) != 0 else 1  # Normalize
+
+    # ✅ Resize heatmap to match original image
+    heatmap = cv2.resize(weighted_features, (96, 96))
+
+    return heatmap
 
 generate_model_visualization(loaded_model)
 
@@ -177,6 +432,11 @@ def img_to_base64(img_array, size=(96, 96), title=""):
     buf.seek(0)
     return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
 
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return "data:image/png;base64," + base64.b64encode(image_file.read()).decode()
+
+
 # Initialize Dash App
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA])
 app.title = "PCam Analyzer"
@@ -212,105 +472,167 @@ app.layout = html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
-                            [
-                                        html.H2("Model Architecture", className="text-center mt-2"),
-                                        dbc.Row(
-                                            [
-                                                dbc.Col([
-                                                    html.Img(id="model-visual", src="assets/model_architecture.png",
-                                                             style={"maxWidth": "370px"}),
-                                                    html.Img(id="model-visual3", src="assets/confusion_matrix.png",
-                                                             style={"maxHeight": "322px", "paddingTop": "15px"}),
-                                                ],
-                                                    style={"padding:": "15px"},
-                                                    className="p-0 m-0",
-                                                    width=5,
-                                                ),
-                                                html.Div(style={"width": "10px"}),
-                                                dbc.Col([
-                                                    dbc.Row([
-                                                        dbc.Col(
-                                                            html.Img(id="model-visual2", src="assets/model_plot.png", style={"maxHeight": "410px"}),
-                                                            className="p-0 m-0",
-                                                        ),
-                                                        html.Div(style={"width": "10px"}),
-                                                        dbc.Col(
                                                             [
-                                                            html.H6("Loaded model: "),
-                                                            html.Label(f"{DEFAULT_DATASET}"),
-                                                            dcc.Upload(
-                                                                id="upload-image",
-                                                                children=html.Div(
-                                                                    ["Replace the Model"]
-                                                                ),
-                                                                style={
-                                                                    "width": "100%",
-                                                                    "height": "100px",
-                                                                    "lineHeight": "100px",
-                                                                    "borderWidth": "2px",
-                                                                    "borderStyle": "dashed",
-                                                                    "borderRadius": "10px",
-                                                                    "textAlign": "center",
-                                                                    "margin": "10px",
-                                                                },
-                                                                multiple=False,
-                                                            ),
-                                                            html.Div(style={"paddingTop": "10px"}),
-                                                            html.H6("Loaded weights: "),
-                                                            html.Label(f"{DEFAULT_WEIGHT}"),
 
-                                                            dcc.Upload(
-                                                                id="upload-weight",
-                                                                children=html.Div(
-                                                                    ["Replace the Weights"]
-                                                                ),
-                                                                style={
-                                                                    "width": "100%",
-                                                                    "height": "100px",
-                                                                    "lineHeight": "100px",
-                                                                    "borderWidth": "2px",
-                                                                    "borderStyle": "dashed",
-                                                                    "borderRadius": "10px",
-                                                                    "textAlign": "center",
-                                                                    "margin": "10px",
-                                                                },
-                                                                multiple=False,
-                                                            ),
-                                                            dbc.Row(
-                                                                style={"paddingLeft": "7px"},
-                                                                children=[
-                                                                    dbc.Col(
-                                                                        dbc.Button("Regenerate the Classifier",
-                                                                                   color="primary",
-                                                                                   style={"width": "200px"}),
-                                                                        #className="mx-auto text-center",
-                                                                        width=2,
-                                                                    )
-                                                                ]
-                                                            ),
+                            html.H6("Loaded model: "),
+                            html.Label(f"{DEFAULT_DATASET}"),
+                            dcc.Upload(
+                                id="upload-image",
+                                children=html.Div(
+                                    ["Replace the Model"]
+                                ),
+                                style={
+                                    "width": "100%",
+                                    "height": "100px",
+                                    "lineHeight": "100px",
+                                    "borderWidth": "2px",
+                                    "borderStyle": "dashed",
+                                    "borderRadius": "10px",
+                                    "textAlign": "center",
+                                    "margin": "10px",
+                                },
+                                multiple=False,
+                            ),
+                            html.Div(style={"paddingTop": "10px"}),
+                            html.H6("Loaded weights: "),
+                            html.Label(f"{DEFAULT_WEIGHT}"),
 
-                                                            ],
-                                                            className="p-0 m-0",
-                                                        ),
-                                                        ],
-                                                            className="g-0",
-                                                    ),
-                                                    html.Img(id="model-visual4", src="assets/histogram.png",
-                                                                 style={"maxWidth": "490px", "paddingTop": "15px"}),
-                                                ],
-                                                    className="p-0 m-0",
-                                                    width=6,
-                                                )
-                                                #html.Div(style={"width": "10px"}),
+                            dcc.Upload(
+                                id="upload-weight",
+                                children=html.Div(
+                                    ["Replace the Weights"]
+                                ),
+                                style={
+                                    "width": "100%",
+                                    "height": "100px",
+                                    "lineHeight": "100px",
+                                    "borderWidth": "2px",
+                                    "borderStyle": "dashed",
+                                    "borderRadius": "10px",
+                                    "textAlign": "center",
+                                    "margin": "10px",
+                                },
+                                multiple=False,
+                            ),
+                            dbc.Row(
+                                style={"paddingLeft": "7px"},
+                                children=[
+                                    dbc.Col(
+                                        dbc.Button("Regenerate the Classifier",
+                                                   color="primary",
+                                                   style={"width": "275px"}),
+                                        #className="mx-auto text-center",
+                                        width=2,
+                                    )
+                                ]
+                            ),
 
-                                            ],
-                                                className="g-0"
-                                        ),
-                                        #html.Div(style={"width": "10px"}),
+                            html.Img(id="model-visual2", src="assets/few_shot_confusion_matrix.png", style={"maxWidth": "350px", "paddingTop": "35px"}),
 
                             ],
-                            #width=4,  # Set column width
+                            width=2,
+                            style={"padding": "20px"}
                         ),
+                        # dbc.Col(
+                        #     [
+                        #                 html.H2("Model Architecture", className="text-center mt-2"),
+                        #                 dbc.Row(
+                        #                     [
+                        #                         dbc.Col([
+                        #                             html.Img(id="model-visual", src="assets/model_architecture.png",
+                        #                                      style={"maxWidth": "370px"}),
+                        #                             html.Img(id="model-visual3", src="assets/confusion_matrix.png",
+                        #                                      style={"maxHeight": "322px", "paddingTop": "15px"}),
+                        #                         ],
+                        #                             style={"padding:": "15px"},
+                        #                             className="p-0 m-0",
+                        #                             width=5,
+                        #                         ),
+                        #                         html.Div(style={"width": "10px"}),
+                        #                         dbc.Col([
+                        #                             dbc.Row([
+                        #                                 dbc.Col(
+                        #                                     html.Img(id="model-visual2", src="assets/model_plot.png", style={"maxHeight": "410px"}),
+                        #                                     className="p-0 m-0",
+                        #                                 ),
+                        #                                 html.Div(style={"width": "10px"}),
+                        #                                 dbc.Col(
+                        #                                     [
+                        #                                     html.H6("Loaded model: "),
+                        #                                     html.Label(f"{DEFAULT_DATASET}"),
+                        #                                     dcc.Upload(
+                        #                                         id="upload-image",
+                        #                                         children=html.Div(
+                        #                                             ["Replace the Model"]
+                        #                                         ),
+                        #                                         style={
+                        #                                             "width": "100%",
+                        #                                             "height": "100px",
+                        #                                             "lineHeight": "100px",
+                        #                                             "borderWidth": "2px",
+                        #                                             "borderStyle": "dashed",
+                        #                                             "borderRadius": "10px",
+                        #                                             "textAlign": "center",
+                        #                                             "margin": "10px",
+                        #                                         },
+                        #                                         multiple=False,
+                        #                                     ),
+                        #                                     html.Div(style={"paddingTop": "10px"}),
+                        #                                     html.H6("Loaded weights: "),
+                        #                                     html.Label(f"{DEFAULT_WEIGHT}"),
+                        #
+                        #                                     dcc.Upload(
+                        #                                         id="upload-weight",
+                        #                                         children=html.Div(
+                        #                                             ["Replace the Weights"]
+                        #                                         ),
+                        #                                         style={
+                        #                                             "width": "100%",
+                        #                                             "height": "100px",
+                        #                                             "lineHeight": "100px",
+                        #                                             "borderWidth": "2px",
+                        #                                             "borderStyle": "dashed",
+                        #                                             "borderRadius": "10px",
+                        #                                             "textAlign": "center",
+                        #                                             "margin": "10px",
+                        #                                         },
+                        #                                         multiple=False,
+                        #                                     ),
+                        #                                     dbc.Row(
+                        #                                         style={"paddingLeft": "7px"},
+                        #                                         children=[
+                        #                                             dbc.Col(
+                        #                                                 dbc.Button("Regenerate the Classifier",
+                        #                                                            color="primary",
+                        #                                                            style={"width": "200px"}),
+                        #                                                 #className="mx-auto text-center",
+                        #                                                 width=2,
+                        #                                             )
+                        #                                         ]
+                        #                                     ),
+                        #
+                        #                                     ],
+                        #                                     className="p-0 m-0",
+                        #                                 ),
+                        #                                 ],
+                        #                                     className="g-0",
+                        #                             ),
+                        #                             html.Img(id="model-visual4", src="assets/histogram.png",
+                        #                                          style={"maxWidth": "490px", "paddingTop": "15px"}),
+                        #                         ],
+                        #                             className="p-0 m-0",
+                        #                             width=6,
+                        #                         )
+                        #                         #html.Div(style={"width": "10px"}),
+                        #
+                        #                     ],
+                        #                         className="g-0"
+                        #                 ),
+                        #                 #html.Div(style={"width": "10px"}),
+                        #
+                        #     ],
+                        #     #width=4,  # Set column width
+                        # ),
                         dbc.Col(
                             [
                             html.H2("False Positive Samples Preview", className="text-center mt-2"),
@@ -327,21 +649,26 @@ app.layout = html.Div(
                                                 ],
                                                 value=get_last_conv_layer(loaded_model),  # Default: Last Conv Layer
                                                 #clearable=False,
-                                                style={"width": "20%", "margin-bottom": "10px"},
+                                                style={"width": "10%", "margin-bottom": "10px"},
                                                 className="mx-auto text-center",
                                             ),
                                             dbc.Row(
                                                 [
                                                     dbc.Col(
-                                                        html.Img(id="output-image",
+                                                        html.Img(id="gradcam-image",
+                                                                     style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
+
+                                                        width="auto", className="text-center"
+                                                    ),
+                                                    dbc.Col(
+                                                        html.Img(id="xgrad-image",
                                                                  style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
                                                         width="auto", className="text-center"
                                                     ),
                                                     dbc.Col(
                                                         children=[
-                                                            html.Img(id="gradcam-image",
-                                                                     style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "35px"}),
-
+                                                            html.Img(id="output-image",
+                                                                 style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "35px"}),
                                                             dcc.Slider(
                                                                 id="opacity-slider",
                                                                 min=0, max=1, step=0.05,
@@ -354,6 +681,13 @@ app.layout = html.Div(
                                                     className="text-center"),
                                                     dbc.Col(
                                                         html.Img(id="hircam-image",
+                                                                 style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
+                                                        width="auto", className="text-center"
+                                                    ),
+
+
+                                                    dbc.Col(
+                                                        html.Img(id="xrai-image",
                                                                  style={"maxWidth": "300px", "borderRadius": "0px", "paddingTop": "0px"}),
                                                         width="auto", className="text-center"
                                                     ),
@@ -428,6 +762,8 @@ app.layout = html.Div(
     [Output("output-image", "src"),
      Output("gradcam-image", "src"),
      Output("hircam-image", "src"),
+     Output("xrai-image", "src"),
+     Output("xgrad-image", "src"),
      Output("image-label", "children"),
      Output("confidence-score", "children"),
      Output("thumbnail-gallery", "children"),
@@ -480,6 +816,15 @@ def update_image(startup, prev_clicks, next_clicks, flag_btn, thumb_clicks, opac
     heatmap = compute_hires_cam(loaded_model, img_array, layer_name=selected_layer)
     hircam_overlay = overlay_heatmap(img_array, heatmap, opacity)
 
+    heatmap = compute_score_cam(loaded_model, img_array, last_conv_layer_name=selected_layer)
+    overlayed_scorecam = overlay_heatmap(img_array, heatmap, opacity)
+    #compute_xrai_heatmap(loaded_model, img_array)
+
+    xgrad_heatmap = compute_xgrad_cam(loaded_model, img_array, last_conv_layer_name=selected_layer)
+    #xrai_heatmap = compute_xrai_heatmap(loaded_model, img_array)
+
+    # ✅ Convert to Overlay Heatmap
+    overlayed_xgrad = overlay_heatmap(img_array, xgrad_heatmap, alpha=opacity)
     # Extract Confidence Score from Filename
     confidence = 100 - int(filename.split("_")[0])  # Extract confidence
     confidence_text = f"Metastases presence confidence: {confidence} %"
@@ -516,8 +861,10 @@ def update_image(startup, prev_clicks, next_clicks, flag_btn, thumb_clicks, opac
     flagged_count = len(flagged_samples)
     label = "Given label: No metastases"
     return (main_img_src, img_to_base64(gradcam_overlay, size=(96,96), title="GradCAM"),
-            img_to_base64(hircam_overlay, size=(96,96), title="HiResCAM"), label, confidence_text, thumbnails,
+            img_to_base64(hircam_overlay, size=(96,96), title="HiResCAM"), img_to_base64(overlayed_scorecam, title="ScoreCAM"), img_to_base64(overlayed_xgrad, title="xGRAD-CAM"), label, confidence_text, thumbnails,
             current_index, flagged_samples, visited_images, f"Export {flagged_count} Flagged Images")
+
+
 
 if __name__ == "__main__":
     app.run_server(debug=True)
