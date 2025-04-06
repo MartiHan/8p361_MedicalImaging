@@ -1,0 +1,14 @@
+dash
+plotly
+dash-bootstrap-components
+tensorflow
+keras
+matplotlib
+opencv-python
+numpy
+Pillow
+visualkeras
+torch
+torchvision
+torchstain
+scikit-learn
