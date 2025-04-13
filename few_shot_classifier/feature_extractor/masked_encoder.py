@@ -1,10 +1,10 @@
 from tensorflow.keras import layers, Model, Input
 from pcam_loader.pcam_loader import PCAMDataLoader
+import tensorflow as tf
+from feature_extractor.patch_embedding import PatchEmbed
+from feature_extractor.random_masking import RandomMasking
 from tensorflow.keras import layers, models
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Flatten
-from tensorflow.keras.layers import Conv2D, MaxPool2D
-from tensorflow.keras.optimizers import SGD, Adam
+from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 import os
@@ -15,38 +15,52 @@ class MaskedAutoEncoder:
         self.encoder_freeze = encoder_freeze
         self.weights = weights
 
-    def build(self):
-        model = models.Sequential([
-            # Block 1
-            layers.Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=self.input_shape),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D((2, 2)),
+    def build_encoder(self, num_patches=144, embed_dim=128, depth=4):
+        inputs = Input(shape=self.input_shape, name='encoder_input')
+        x = layers.Conv2D(32, (3, 3), activation='relu', padding='same', name='conv1')(inputs)
+        x = layers.BatchNormalization(name='bn1')(x)
+        x = layers.MaxPooling2D((2, 2), name='pool1')(x)
 
-            # Block 2
-            layers.Conv2D(64, (3, 3), activation='relu', padding='same'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D((2, 2)),
+        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same', name='conv2')(x)
+        x = layers.BatchNormalization(name='bn2')(x)
+        x = layers.MaxPooling2D((2, 2), name='pool2')(x)
 
-            # Block 3
-            layers.Conv2D(128, (3, 3), activation='relu', padding='same'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D((2, 2)),
+        x = layers.Conv2D(128, (3, 3), activation='relu', padding='same', name='conv3')(x)
+        x = layers.BatchNormalization(name='bn3')(x)
+        x = layers.MaxPooling2D((2, 2), name='pool3')(x)
 
-            # Block 4 (Final Convolutional Block for Grad-CAM)
-            layers.Conv2D(64, (3, 3), activation='relu', padding='same', name='gradcam_layer'),
-            layers.BatchNormalization(),
-            layers.GlobalAveragePooling2D(),
+        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same', name='gradcam_layer')(x)
+        x = layers.BatchNormalization(name='bn4')(x)
 
-            # Fully Connected Layer
-            layers.Dense(128, activation='relu'),
-            layers.Dropout(0.5),
-            layers.Dense(1, activation='sigmoid')  # Binary classification
-        ])
-
-        # compile the model
-        #model.compile(Adam(), loss='binary_crossentropy', metrics=['accuracy'])
-
+        model = models.Model(inputs=inputs, outputs=x, name='encoder')
         return model
+
+    def build_decoder(self, output_shape=(96, 96, 3)):
+        inputs = Input(shape=(12, 12, 64))  # Output of encoder (pooled 3 times from 96 → 12)
+
+        x = layers.Conv2DTranspose(64, 3, strides=2, padding='same', activation='relu')(inputs)  # 12→24
+        x = layers.Conv2DTranspose(64, 3, strides=2, padding='same', activation='relu')(x)  # 24→48
+        x = layers.Conv2DTranspose(32, 3, strides=2, padding='same', activation='relu')(x)  # 48→96
+        x = layers.Conv2D(3, 1, activation='sigmoid')(x)
+
+        return models.Model(inputs, x, name='decoder')
+
+    def build_mae(self, input_shape=(96, 96, 3), patch_size=8, embed_dim=128, mask_ratio=0.75):
+        inputs = Input(shape=input_shape)
+
+        # Apply masking
+        masked = RandomMasking(mask_ratio=mask_ratio)(inputs)
+
+        # Encoder (your model)
+        encoder = self.build_encoder(input_shape)
+        encoded = encoder(masked)  # output shape (B, 12, 12, 64)
+
+        # Decoder
+        decoder = self.build_decoder(output_shape=input_shape)
+        reconstructed = decoder(encoded)
+
+        return models.Model(inputs, reconstructed, name='mae_with_custom_encoder')
+
 
 class ModelTrainer:
     def __init__(self, base_dir, input_shape=(96, 96, 3)):
@@ -55,19 +69,18 @@ class ModelTrainer:
         self.model = None
 
     def prepare_data(self):
-        loader = PCAMDataLoader(base_dir=self.base_dir, image_size=self.input_shape[0])
-        return loader.get_generators()
+        loader = PCAMDataLoader(base_dir=self.base_dir, image_size=self.input_shape[0], standardize=False)
+        return loader.get_generators(class_mode=None)
 
     def build_model(self):
         encoder = MaskedAutoEncoder(input_shape=self.input_shape)
-        self.model = encoder.build()
+        self.model = encoder.build_mae()
 
-        # Add a simple classifier head for binary classification
-        x = layers.GlobalAveragePooling2D()(self.model.output[0])
-        x = layers.Dense(64, activation='relu')(x)
-        output = layers.Dense(1, activation='sigmoid')(x)
-        self.model = Model(self.model.input, output)
-        self.model.compile(Adam(learning_rate=0.01), loss='binary_crossentropy', metrics=['accuracy'])
+        self.model.compile(optimizer='adam', loss='mse')
+
+    def self_supervised_wrapper(self, generator):
+        for batch in generator:
+            yield batch, batch
 
     def train(self, train_gen, epochs=10, batch_size=32):
         early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
@@ -84,7 +97,7 @@ class ModelTrainer:
         val_steps = val_gen.n // val_gen.batch_size
 
         history = self.model.fit(
-            train_gen, epochs=epochs, steps_per_epoch=train_steps,
+            self.self_supervised_wrapper(train_gen), epochs=epochs, steps_per_epoch=train_steps,
             callbacks=callbacks_list
         )
 
@@ -99,10 +112,9 @@ class ModelTrainer:
         return history
 
 
+
 trainer = ModelTrainer(base_dir='/home/martina/Documents/Projects/8P361 AI Project for Medical Imaging/Datasets/')
 train_gen, val_gen = trainer.prepare_data()
 trainer.build_model()
-
-
-trainer.train(val_gen, epochs=1)
+trainer.train(val_gen, epochs=50)
 
