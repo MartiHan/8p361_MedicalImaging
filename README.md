@@ -16,6 +16,23 @@ Deep learning models trained on heterogeneous datasets may suffer from over-gene
 
 ![Model's architecture](assets/8p361_project2.drawio.png)
 
+#### Dataset
+1. Download and unpack PCam dataset from https://github.com/basveeling/pcam. The structure should correspond to the file tree below:
+.
+├── test
+└── train+val
+    ├── few_shot
+    │   ├── 0
+    │   └── 1
+    ├── train
+    │   ├── 0
+    │   └── 1
+    └── valid
+        ├── 0
+        └── 1
+
+2. Set the path to the dataset in `few_shot_classifier/config.py`
+
 #### Installing dependencies
 ```
 python3 -m pip install -r requirements.txt
@@ -53,8 +70,8 @@ python3 -m roc_curve_plotter.roc_curve_plotter
 
 #### Generating false positive classifications
 ```
-cd pcam_analyzer/scripts
-python3 generate_false_positives.py
+cd few_shot_classifier
+python3 -m generate_false_positives.generate_false_positives
 ```
 
 ### Results
@@ -108,6 +125,7 @@ Grad-CAM generated heatmaps were first applied on the true positive samples to v
 can detect the metastases in the central 32x32 px region. A sample result can be seen in 
 Figure below. The prediction score is encoded in a 'jet' colormap with red corresponding to
 the highest confidence and dark blue corresponding to the lowest confidence. 
+
 ![True positive](assets/true_positive2.png)
 
 Figure below depicts one of the samples annotated as without metastases but with high prediction confidence of their presence. The detected metastases are outside the central region and hence the ground truth label could not be influenced by them.

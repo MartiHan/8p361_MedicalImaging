@@ -24,7 +24,7 @@ def compute_grad_cam(model, image, layer_name=None):
 
     with tf.GradientTape() as tape:
         conv_output, predictions = grad_model(img_tensor)
-        class_index = int(np.argmax(predictions))  # ✅ FIXED Invalid Index Error
+        class_index = int(np.argmax(predictions))
         class_output = predictions[:, class_index]
 
     predicted_prob = model.predict(img_tensor)[0][0]
@@ -35,8 +35,8 @@ def compute_grad_cam(model, image, layer_name=None):
     heatmap = np.mean(conv_output * pooled_grads, axis=-1)
     heatmap = np.maximum(heatmap, 0)
     heatmap /= np.max(heatmap) if np.max(heatmap) != 0 else 1
-    print("Predicted Probability: ", predicted_prob)
-    return heatmap
+    #print("Predicted Probability: ", predicted_prob)
+    return heatmap, predicted_prob
 
 
 def compute_hires_cam(model, image, class_index=0, layer_name=None):

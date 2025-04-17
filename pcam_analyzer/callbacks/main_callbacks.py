@@ -6,7 +6,6 @@ from utils.preprocessing import stain_standardization
 from utils.image_utils import img_to_base64, load_images
 from models.model_loader import load_model
 
-
 loaded_model = load_model()
 image_list = load_images()
 num_images = len(image_list)
@@ -69,7 +68,7 @@ def register_callbacks(app):
         img_array = stain_standardization(img_array)
 
         # Compute Grad-CAM Heatmap
-        heatmap_gradcam = cam_utils.compute_grad_cam(loaded_model, img_array, layer_name=selected_layer)
+        heatmap_gradcam, confidence = cam_utils.compute_grad_cam(loaded_model, img_array, layer_name=selected_layer)
         gradcam_overlay = cam_utils.overlay_heatmap(orig_img, heatmap_gradcam, opacity)
 
         heatmap = cam_utils.compute_hires_cam(loaded_model, img_array, layer_name=selected_layer)
@@ -85,8 +84,7 @@ def register_callbacks(app):
         #  Convert to Overlay Heatmap
         overlayed_xgrad = cam_utils.overlay_heatmap(orig_img, xgrad_heatmap, alpha=opacity)
         # Extract Confidence Score from Filename
-        # confidence = 100 - int(filename.split("_")[0])  # Extract confidence
-        confidence = 0
+        confidence = 100 - int(filename.split("_")[0])  # Extract confidence
         confidence_text = f"Metastases presence confidence: {confidence} %"
 
         # **Sliding Window for Thumbnails**
@@ -125,4 +123,3 @@ def register_callbacks(app):
                 img_to_base64(overlayed_scorecam, title="ScoreCAM"), img_to_base64(overlayed_xgrad, title="xGRAD-CAM"),
                 label, confidence_text, thumbnails,
                 current_index, flagged_samples, visited_images, f"Export {flagged_count} Flagged Images")
-

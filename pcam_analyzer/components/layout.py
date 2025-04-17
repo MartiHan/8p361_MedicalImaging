@@ -114,7 +114,7 @@ def serve_layout():
                                                 ],
                                                 value=get_last_conv_layer(loaded_model),  # Default: Last Conv Layer
                                                 #clearable=False,
-                                                style={"width": "10%", "margin-bottom": "10px"},
+                                                style={"width": "15%", "margin-bottom": "10px"},
                                                 className="mx-auto text-center",
                                             ),
                                             dbc.Row(
@@ -137,7 +137,7 @@ def serve_layout():
                                                             dcc.Slider(
                                                                 id="opacity-slider",
                                                                 min=0, max=1, step=0.05,
-                                                                value=0.5,  # Default opacity
+                                                                value=1.0,  # Default opacity
                                                                 marks={0: "0", 0.5: "0.5", 1: "1"},
                                                                 tooltip={"placement": "bottom"},
                                                             ),

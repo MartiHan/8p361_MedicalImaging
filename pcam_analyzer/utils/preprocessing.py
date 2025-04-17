@@ -1,4 +1,3 @@
-from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import numpy as np
 
 def stain_standardization(img):
@@ -12,4 +11,4 @@ def stain_standardization(img):
 
     result = (img - mean) / std
     #print(result)
-    return result  # * 255.0
+    return result  #* 255.0
