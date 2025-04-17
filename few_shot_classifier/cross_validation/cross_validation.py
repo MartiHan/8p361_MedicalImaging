@@ -1,11 +1,12 @@
 import os
+import argparse
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from tensorflow.keras import layers, Model, Input
 from tensorflow.keras.preprocessing.image import save_img
 from pcam_loader.pcam_loader import PCAMDataLoader
-
+from config import GLOBAL_DATASET_PATH
 
 class FewShotSubsetSelector:
     def __init__(self, base_dir, image_size=96, batch_size=32):
@@ -119,9 +120,15 @@ class FewShotSubsetSelector:
         print(f"Saved representative subset (run {best_idx}) to: {save_dir}")
 
 
+parser = argparse.ArgumentParser(description="Cross validate few-shot classifier performance and pick average input subset")
+parser.add_argument('--encoder', type=str, default='../models/encoder_classifier_weights.h5', help='Path to the pretrained encoder weights in .h5')
+parser.add_argument('--dataset', type=str, default=GLOBAL_DATASET_PATH, help='Path to the PCAM dataset')
+parser.add_argument('--num_per_class', type=int, default=32, help='Number instances per class')
+parser.add_argument('--output', type=str, default='avg_subset_output', help='Output directory')
+args = parser.parse_args()
 
-selector = FewShotSubsetSelector(base_dir='../../../../Datasets')
-encoder = selector.get_frozen_encoder(weights_path='../models/encoder_classifier_weights.h5')
+selector = FewShotSubsetSelector(base_dir=args.dataset)
+encoder = selector.get_frozen_encoder(weights_path=args.encoder)
 x_raw, y_raw, class_0_idx, class_1_idx = selector.data_labels_split()
 features, labels = selector.get_all_features_labels(encoder)
-selector.cross_validate_on_features(features, labels, x_raw, y_raw, [class_0_idx, class_1_idx])
+selector.cross_validate_on_features(features, labels, x_raw, y_raw, [class_0_idx, class_1_idx], num_per_class=args.num_per_class, save_dir=args.output)

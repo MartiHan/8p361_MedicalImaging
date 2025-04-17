@@ -1,13 +1,15 @@
-from tensorflow.keras import layers, Model, Input
+import os
+import argparse
+from tensorflow.keras import Input
 from pcam_loader.pcam_loader import PCAMDataLoader
-import tensorflow as tf
 from feature_extractor.patch_embedding import PatchEmbed
 from feature_extractor.random_masking import RandomMasking
 from tensorflow.keras import layers, models
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
-import os
+from config import GLOBAL_DATASET_PATH
+
+
+DEFAULT_EPOCHS = 50
 
 class MaskedAutoEncoder:
     def __init__(self, input_shape=(96, 96, 3), encoder_freeze=False, weights=None):
@@ -63,14 +65,15 @@ class MaskedAutoEncoder:
 
 
 class ModelTrainer:
-    def __init__(self, base_dir, input_shape=(96, 96, 3)):
+    def __init__(self, base_dir, input_shape=(96, 96, 3), output_name='../../models/mae_encoder'):
         self.base_dir = base_dir
         self.input_shape = input_shape
         self.model = None
+        self.output_name = output_name
 
     def prepare_data(self):
         loader = PCAMDataLoader(base_dir=self.base_dir, image_size=self.input_shape[0], standardize=False)
-        return loader.get_generators(class_mode=None)
+        return loader.get_generators(class_mode=None, train_batch_size=32, val_batch_size=32)
 
     def build_model(self):
         encoder = MaskedAutoEncoder(input_shape=self.input_shape)
@@ -82,10 +85,8 @@ class ModelTrainer:
         for batch in generator:
             yield batch, batch
 
-    def train(self, train_gen, epochs=10, batch_size=32):
-        early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
-
-        model_name = 'custom_test'
+    def train(self, train_gen, epochs=10):
+        model_name = self.output_name
         model_filepath = model_name + '.json'
         weights_filepath = model_name + '_weights.hdf5'
 
@@ -94,7 +95,6 @@ class ModelTrainer:
         callbacks_list = [checkpoint, tensorboard]
 
         train_steps = train_gen.n // train_gen.batch_size
-        val_steps = val_gen.n // val_gen.batch_size
 
         history = self.model.fit(
             self.self_supervised_wrapper(train_gen), epochs=epochs, steps_per_epoch=train_steps,
@@ -106,15 +106,16 @@ class ModelTrainer:
         with open(model_filepath, "w") as json_file:
             json_file.write(model_json)
 
-        # Save model weights to HDF5
-        #self.model.save_weights("u_net_Test_weights.hdf5")
-
         return history
 
 
+parser = argparse.ArgumentParser(description="Train a Masked Autoencoder on PCAM")
+parser.add_argument('--epochs', type=int, default=DEFAULT_EPOCHS, help='Number of training epochs')
+parser.add_argument('--dataset', type=str, default=GLOBAL_DATASET_PATH, help='Path to the PCAM dataset')
+parser.add_argument('--output', type=str, default='../../models/mae_encoder', help='Output model file name prefix')
+args = parser.parse_args()
 
-trainer = ModelTrainer(base_dir='/home/martina/Documents/Projects/8P361 AI Project for Medical Imaging/Datasets/')
-train_gen, val_gen = trainer.prepare_data()
+trainer = ModelTrainer(base_dir=args.dataset, output_name=args.output)
+_, train_gen = trainer.prepare_data()
 trainer.build_model()
-trainer.train(val_gen, epochs=50)
-
+trainer.train(train_gen, epochs=args.epochs)

@@ -51,8 +51,11 @@ specified via `--output` option in the command above.
 #### Generating average input subsets for few-shot classifier
 ```
 cd few_shot_classifier
-python3 -m cross_validation.cross_validation
+python3 -m cross_validation.cross_validation --encoder ../models/encoder_classifier_weights.h5 --num_per_class 32 --output avg_subset_output
 ```
+
+The subset of PCam dataset with average score reported by the few shot classifier will be saved in the directory 
+specified in `--output` option with suffix corresponding to `num_per_class`.
 
 #### Few-Shot classifier training
 ```
