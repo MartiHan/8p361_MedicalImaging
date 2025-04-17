@@ -5,10 +5,13 @@ import numpy as np
 IMAGE_SIZE = 96
 
 class PCAMDataLoader:
-    def __init__(self, base_dir, image_size=IMAGE_SIZE):
+    def __init__(self, base_dir, image_size=IMAGE_SIZE, standardize=False):
         self.base_dir = base_dir
         self.image_size = image_size
-        self.datagen = ImageDataGenerator(rescale=1./255, preprocessing_function=self.stain_standardization)
+        if standardize:
+            self.datagen = ImageDataGenerator(rescale=1./255, preprocessing_function=self.stain_standardization)
+        else:
+            self.datagen = ImageDataGenerator(rescale=1./255)
 
     def stain_standardization(self, img):
         img = img.astype(np.float64)
@@ -22,7 +25,7 @@ class PCAMDataLoader:
         # print(result)
         return result * 255.0
 
-    def get_generators(self, train_batch_size=32, val_batch_size=32, shuffle=False):
+    def get_generators(self, train_batch_size=32, val_batch_size=32, shuffle=False, class_mode='binary'):
         train_path = os.path.join(self.base_dir, 'train+val', 'train')
         valid_path = os.path.join(self.base_dir, 'train+val', 'valid')
 
@@ -30,7 +33,7 @@ class PCAMDataLoader:
             train_path,
             target_size=(self.image_size, self.image_size),
             batch_size=train_batch_size,
-            class_mode='binary',
+            class_mode=class_mode,
             shuffle=shuffle
         )
 
@@ -38,7 +41,7 @@ class PCAMDataLoader:
             valid_path,
             target_size=(self.image_size, self.image_size),
             batch_size=val_batch_size,
-            class_mode='binary',
+            class_mode=class_mode,
             shuffle=shuffle
         )
 
