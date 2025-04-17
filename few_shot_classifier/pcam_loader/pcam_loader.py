@@ -25,9 +25,13 @@ class PCAMDataLoader:
         # print(result)
         return result * 255.0
 
-    def get_generators(self, train_batch_size=32, val_batch_size=32, shuffle=False, class_mode='binary'):
-        train_path = os.path.join(self.base_dir, 'train+val', 'train')
-        valid_path = os.path.join(self.base_dir, 'train+val', 'valid')
+    def get_generators(self, train_batch_size=32, val_batch_size=32, shuffle=False, class_mode='binary', train_val=True):
+        if train_val:
+            train_path = os.path.join(self.base_dir, 'train+val', 'train')
+            valid_path = os.path.join(self.base_dir, 'train+val', 'valid')
+        else:
+            train_path = os.path.join(self.base_dir)
+            valid_path = os.path.join(self.base_dir)
 
         train_gen = self.datagen.flow_from_directory(
             train_path,

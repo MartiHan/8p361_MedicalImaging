@@ -61,8 +61,8 @@ class LatentSpaceVisualizer:
 
 visualizer = LatentSpaceVisualizer(
     base_dir='../../../../Datasets',
-    json_path='../models/gradcam_mae_few_shot_stain_standardization.json',
-    weights_path='../models/gradcam_mae_few_shot_stain_standardization.hdf5'
+    json_path='../models/gradcam_stain_standardization.json',
+    weights_path='../models/gradcam_stain_standardization.hdf5'
 )
 visualizer.load_model()
 visualizer.compute_tsne()

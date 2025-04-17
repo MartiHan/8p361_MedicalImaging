@@ -47,8 +47,8 @@ class ModelEvaluator:
 
 evaluator = ModelEvaluator(
     base_dir='/home/martina/Documents/Projects/8P361 AI Project for Medical Imaging/Datasets/',
-    json_path='custom_test.json',
-    weights_path='custom_test_weights.hdf5'
+    json_path='few_shot_classifier.json',
+    weights_path='few_shot_classifier_weights.hdf5'
 )
 evaluator.load_model()
 auc_score = evaluator.evaluate()

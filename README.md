@@ -60,8 +60,13 @@ specified in `--output` option with suffix corresponding to `num_per_class`.
 #### Few-Shot classifier training
 ```
 cd few_shot_classifier
-python3 -m few_shot_training.training
+python3 -m few_shot_training.training --encoder ../models/encoder_classifier_weights.h5 --dataset avg_subset_output_32 --num_per_class 32 --epochs 50 --batch_size 8 --output few_shot_classifier
 ```
+
+The output consisting of model architecture in `.json` format 
+and weights in `.hdf5` format can be found in the directory and file prefix 
+specified via `--output` option in the command above. The suffix is determined by `num_per_class` parameter.
+
 
 #### Latent space plotter
 ```

@@ -1,4 +1,5 @@
 import os
+import argparse
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, Input
@@ -76,7 +77,7 @@ class FewShotTrainer:
 
         raise ValueError("Not enough samples to build the few-shot subset.")
 
-    def train(self, num_per_class=8000, epochs=3, batch_size=32, weights_path=None):
+    def train(self, num_per_class=32, epochs=50, batch_size=8, weights_path=None):
         self.model = self.get_few_shot_classifier(weights_path=weights_path)
         x_few, y_few = self.get_few_shot_subset(self.val_gen, num_per_class=num_per_class)
 
@@ -84,6 +85,7 @@ class FewShotTrainer:
                            loss='binary_crossentropy',
                            metrics=['accuracy'])
 
+        self.model_name += '_' + str(num_per_class)
         model_filepath = self.model_name + '.json'
         weights_filepath = self.model_name + '_weights.hdf5'
 
@@ -98,6 +100,14 @@ class FewShotTrainer:
         history = self.model.fit(x_few, y_few, epochs=epochs, batch_size=batch_size, callbacks=callbacks_list)
         return history
 
+parser = argparse.ArgumentParser(description="Train few shot classifier on provided input subset")
+parser.add_argument('--encoder', type=str, default='../models/encoder_classifier_weights.h5', help='Path to the pretrained encoder weights in .h5')
+parser.add_argument('--dataset', type=str, default='avg_subset_output_32', help='Few shot subset obtained from cross validation')
+parser.add_argument('--num_per_class', type=int, default=32, help='Number instances per class')
+parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs')
+parser.add_argument('--batch_size', type=int, default=8, help='Batch size')
+parser.add_argument('--output_model', type=str, default='few_shot_classifier', help='Output model filename')
+args = parser.parse_args()
 
-trainer = FewShotTrainer(base_dir='avg_subset_output_10')
-trainer.train(num_per_class=10, epochs=50, batch_size=32, weights_path='../models/ranking_encoder_weights.h5')
+trainer = FewShotTrainer(base_dir=args.dataset, model_name=args.output)
+trainer.train(num_per_class=args.num_per_class, epochs=args.epochs, batch_size=args.batch_size, weights_path=args.encoder)
