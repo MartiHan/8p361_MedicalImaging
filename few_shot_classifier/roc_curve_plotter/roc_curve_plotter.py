@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from tensorflow.keras.models import model_from_json
 from sklearn.metrics import roc_curve, auc
 from pcam_loader.pcam_loader import PCAMDataLoader
-
+from config import GLOBAL_DATASET_PATH
 
 class ModelEvaluator:
     def __init__(self, base_dir, json_path, weights_path, input_shape=(96, 96, 3)):
@@ -46,9 +46,9 @@ class ModelEvaluator:
         return roc_auc
 
 evaluator = ModelEvaluator(
-    base_dir='/home/martina/Documents/Projects/8P361 AI Project for Medical Imaging/Datasets/',
-    json_path='few_shot_classifier.json',
-    weights_path='few_shot_classifier_weights.hdf5'
+    base_dir=GLOBAL_DATASET_PATH,
+    json_path='../models/few_shot32_frozen.json',
+    weights_path='../models/few_shot32_frozen_weights.hdf5'
 )
 evaluator.load_model()
 auc_score = evaluator.evaluate()
