@@ -18,18 +18,18 @@ Deep learning models trained on heterogeneous datasets may suffer from over-gene
 
 #### Dataset
 1. Download and unpack PCam dataset from https://github.com/basveeling/pcam. The structure should correspond to the file tree below:
+
+```
 .
 ├── test
 └── train+val
-    ├── few_shot
-    │   ├── 0
-    │   └── 1
     ├── train
     │   ├── 0
     │   └── 1
     └── valid
         ├── 0
         └── 1
+```
 
 2. Set the path to the dataset in `few_shot_classifier/config.py`
 
@@ -41,8 +41,12 @@ python3 -m pip install -r requirements.txt
 #### Masked autoencoder training
 ```
 cd few_shot_classifier
-python3 -m feature_extractor.masked_encoder
+python3.8 -m feature_extractor.masked_encoder --epochs 50 --output ../models/mae_encoder
 ```
+
+The output consisting of model architecture in `.json` format 
+and weights in `.hdf5` format can be found in the directory and file prefix 
+specified via `--output` option in the command above.
 
 #### Generating average input subsets for few-shot classifier
 ```
